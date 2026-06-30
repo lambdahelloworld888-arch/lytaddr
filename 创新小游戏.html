@@ -63,6 +63,24 @@ body.playing canvas{cursor:none}
 .btn-restart:hover{background:rgba(255,68,255,.12);box-shadow:0 0 20px rgba(255,68,255,.2)}
 .btn-quit{border-color:#ff664455;color:#ff6644;background:rgba(255,100,68,.06)}
 .btn-quit:hover{background:rgba(255,100,68,.12);box-shadow:0 0 20px rgba(255,100,68,.2)}
+.btn-save{border-color:#44ff8855;color:#44ff88;background:rgba(68,255,136,.06)}
+.btn-save:hover{background:rgba(68,255,136,.12);box-shadow:0 0 20px rgba(68,255,136,.2)}
+.btn-load{border-color:#ffaa4455;color:#ffaa44;background:rgba(255,170,68,.06)}
+.btn-load:hover{background:rgba(255,170,68,.12);box-shadow:0 0 20px rgba(255,170,68,.2)}
+.save-slots{width:clamp(220px,50vw,320px);margin:0 auto clamp(10px,2vw,14px)}
+.save-slot{display:flex;align-items:center;justify-content:space-between;padding:clamp(8px,1.5vw,12px) clamp(10px,2vw,14px);border:1.5px solid #ffffff15;border-radius:8px;margin-bottom:6px;cursor:pointer;transition:all .15s;background:rgba(255,255,255,.02)}
+.save-slot:hover{border-color:#ffffff33;background:rgba(255,255,255,.05)}
+.save-slot-info{flex:1;text-align:left}
+.save-slot-name{font-size:clamp(12px,2vw,16px);color:#ddd;font-weight:700}
+.save-slot-detail{font-size:clamp(9px,1.3vw,12px);color:#888;margin-top:2px}
+.save-slot-empty{font-size:clamp(12px,2vw,16px);color:#555;font-style:italic}
+.save-slot-del{color:#ff444466;font-size:clamp(14px,2vw,18px);cursor:pointer;padding:4px 6px;border:none;background:none;transition:color .15s}
+.save-slot-del:hover{color:#ff4444}
+.save-toast{position:fixed;top:60px;left:50%;transform:translateX(-50%);padding:10px 24px;border-radius:8px;font-size:clamp(13px,2vw,17px);font-weight:700;z-index:20;animation:toastIn .3s ease-out;pointer-events:none}
+@keyframes toastIn{0%{opacity:0;transform:translateX(-50%) translateY(-10px)}100%{opacity:1;transform:translateX(-50%) translateY(0)}}
+.toast-save{background:rgba(68,255,136,.15);color:#44ff88;border:1px solid #44ff8844}
+.toast-load{background:rgba(255,170,68,.15);color:#ffaa44;border:1px solid #ffaa4444}
+.toast-error{background:rgba(255,68,68,.15);color:#ff4444;border:1px solid #ff444444}
 .pause-info{font-size:clamp(11px,1.8vw,16px);color:#556;margin-top:14px;letter-spacing:2px}
 #hudPauseBtn{position:fixed;top:12px;left:12px;z-index:8;width:42px;height:42px;border:1.5px solid rgba(255,255,255,.12);border-radius:8px;background:rgba(0,0,0,.35);color:#aaa;font-size:20px;cursor:pointer;display:none;align-items:center;justify-content:center;transition:all .15s}
 #hudPauseBtn:hover{border-color:rgba(0,255,255,.4);color:#0ff;background:rgba(0,255,255,.08)}
@@ -144,6 +162,10 @@ body.playing canvas{cursor:none}
     </div>
     <div class="best-display" id="menuBest"></div>
     <canvas id="shipPreview" class="ship-preview" width="100" height="60"></canvas>
+    <div id="menuLoadBtn" style="position:relative;z-index:2;margin-top:clamp(8px,1.5vw,14px)">
+      <button class="pause-btn btn-load" style="width:clamp(180px,40vw,260px);padding:clamp(8px,1.5vw,12px) 0;font-size:clamp(13px,2vw,17px)" onclick="menuLoad()">读取存档</button>
+    </div>
+    <div id="menuSavePanel" class="save-slots hidden" style="position:relative;z-index:2"></div>
   </div>
   <div id="deathScreen" class="hidden">
     <div class="title-wrap">
@@ -170,8 +192,11 @@ body.playing canvas{cursor:none}
   <div id="pauseScreen" class="hidden">
     <div class="pause-title">暂 停</div>
     <button class="pause-btn btn-resume" onclick="togglePause()">继续游戏</button>
+    <button class="pause-btn btn-save" onclick="showSavePanel()">保存进度</button>
+    <button class="pause-btn btn-load" onclick="showLoadPanel()">读取存档</button>
     <button class="pause-btn btn-restart" onclick="startGame()">重新开始</button>
     <button class="pause-btn btn-quit" onclick="backToMenu()">退出到主菜单</button>
+    <div id="saveSlotPanel" class="save-slots hidden"></div>
     <div class="pause-info">按 ESC 继续</div>
   </div>
 </div>
@@ -179,8 +204,6 @@ body.playing canvas{cursor:none}
 // ========== AUDIO ==========
 const SFX = (() => {
   let ctx;
-	//sdfsdfsfsfsfdsfsdf
-	//sdfsdfdsf
   const init = () => { if(!ctx) ctx = new (window.AudioContext||window.webkitAudioContext)(); };
   const play = (f,d,t='square',v=.08,s=0) => {
     if(!ctx) return;
@@ -277,6 +300,8 @@ function selectMap(el, mapId) {
   el.classList.add('selected');
   currentMap = mapId;
   menuParticles.forEach((p,i)=>{p.col=MAPS[mapId].particleCols[i%MAPS[mapId].particleCols.length];});
+  const mp = document.getElementById('menuSavePanel');
+  if(mp) mp.classList.add('hidden');
   drawShipPreview();
 }
 
@@ -1265,8 +1290,224 @@ function backToMenu() {
   document.getElementById('pauseScreen').classList.add('hidden');
   document.getElementById('overlay').classList.add('active');
   document.getElementById('hudPauseBtn').style.display='none';
+  document.getElementById('saveSlotPanel').classList.add('hidden');
   updateMenuBest();
   drawShipPreview();
+}
+
+// ========== SAVE / LOAD SYSTEM ==========
+const SAVE_KEY = 'neonSlayerSaves';
+const MAX_SLOTS = 3;
+
+function getSaves() {
+  try { return JSON.parse(localStorage.getItem(SAVE_KEY)) || []; }
+  catch { return []; }
+}
+function putSaves(data) {
+  localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+}
+
+function saveGame(slotIdx) {
+  if(state !== 'paused') return;
+  const saveData = {
+    slot: slotIdx,
+    date: Date.now(),
+    map: currentMap,
+    score, combo, maxCombo, totalKills, wave, gameTime,
+    playerHp: player.hp,
+    playerMaxHp: player.maxHp,
+    specialCharge,
+    px: player.x, py: player.y,
+  };
+  const saves = getSaves();
+  saves[slotIdx] = saveData;
+  putSaves(saves);
+  showToast('存档已保存', 'save');
+  showSavePanel(); // refresh
+}
+
+function loadGame(slotIdx) {
+  const saves = getSaves();
+  const data = saves[slotIdx];
+  if(!data) { showToast('该槽位为空', 'error'); return; }
+
+  // Apply map
+  currentMap = data.map;
+  document.querySelectorAll('.map-card').forEach(c => c.classList.remove('selected'));
+  const target = document.querySelector(`.map-card[data-map="${currentMap}"]`);
+  if(target) target.classList.add('selected');
+  drawShipPreview();
+
+  // Restore state
+  initGame();
+  score = data.score; scoreDisplay = score;
+  combo = data.combo; maxCombo = data.maxCombo;
+  totalKills = data.totalKills;
+  wave = data.wave - 1; // startNextWave will increment
+  gameTime = data.gameTime;
+  player.hp = data.playerHp;
+  player.maxHp = data.playerMaxHp;
+  player.x = data.px || W/2;
+  player.y = data.py || H/2;
+  specialCharge = data.specialCharge || 0;
+  player.col = MAPS[currentMap].accent;
+
+  // Start next wave
+  startNextWave();
+
+  state = 'playing';
+  document.body.classList.add('playing');
+  document.getElementById('overlay').classList.remove('active');
+  document.getElementById('pauseScreen').classList.add('hidden');
+  document.getElementById('saveSlotPanel').classList.add('hidden');
+  document.getElementById('hudPauseBtn').style.display='flex';
+  showToast('存档已读取', 'load');
+}
+
+function deleteSave(slotIdx, e) {
+  e.stopPropagation();
+  const saves = getSaves();
+  saves[slotIdx] = null;
+  putSaves(saves);
+  // Refresh whichever panel is showing
+  if(!document.getElementById('saveSlotPanel').classList.contains('hidden')) {
+    // Check if in save or load mode
+    if(saveSlotMode === 'save') showSavePanel();
+    else showLoadPanel();
+  }
+}
+
+let saveSlotMode = 'save';
+
+function showSavePanel() {
+  saveSlotMode = 'save';
+  const panel = document.getElementById('saveSlotPanel');
+  const saves = getSaves();
+  let html = '<div style="text-align:center;color:#44ff88;font-size:clamp(11px,1.8vw,15px);margin-bottom:8px;letter-spacing:2px">选择存档位置</div>';
+  for(let i = 0; i < MAX_SLOTS; i++) {
+    const s = saves[i];
+    if(s) {
+      const d = new Date(s.date);
+      const dateStr = `${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getDate().toString().padStart(2,'0')} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+      html += `<div class="save-slot" onclick="saveGame(${i})">
+        <div class="save-slot-info">
+          <div class="save-slot-name">存档 ${i+1}</div>
+          <div class="save-slot-detail">${MAPS[s.map]?.name||s.map} · WAVE ${s.wave} · ${s.score}分 · ${fmtTime(s.gameTime)} · ${dateStr}</div>
+        </div>
+        <button class="save-slot-del" onclick="deleteSave(${i},event)" title="删除">&#10005;</button>
+      </div>`;
+    } else {
+      html += `<div class="save-slot" onclick="saveGame(${i})">
+        <div class="save-slot-empty">存档 ${i+1} - 空</div>
+      </div>`;
+    }
+  }
+  panel.innerHTML = html;
+  panel.classList.remove('hidden');
+}
+
+function showLoadPanel() {
+  saveSlotMode = 'load';
+  const panel = document.getElementById('saveSlotPanel');
+  const saves = getSaves();
+  let html = '<div style="text-align:center;color:#ffaa44;font-size:clamp(11px,1.8vw,15px);margin-bottom:8px;letter-spacing:2px">选择读取存档</div>';
+  let hasAny = false;
+  for(let i = 0; i < MAX_SLOTS; i++) {
+    const s = saves[i];
+    if(s) {
+      hasAny = true;
+      const d = new Date(s.date);
+      const dateStr = `${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getDate().toString().padStart(2,'0')} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+      html += `<div class="save-slot" onclick="loadGame(${i})">
+        <div class="save-slot-info">
+          <div class="save-slot-name">存档 ${i+1}</div>
+          <div class="save-slot-detail">${MAPS[s.map]?.name||s.map} · WAVE ${s.wave} · ${s.score}分 · ${fmtTime(s.gameTime)} · ${dateStr}</div>
+        </div>
+        <button class="save-slot-del" onclick="deleteSave(${i},event)" title="删除">&#10005;</button>
+      </div>`;
+    }
+  }
+  if(!hasAny) {
+    html += '<div style="text-align:center;color:#555;font-size:clamp(11px,1.5vw,14px);padding:16px">暂无存档</div>';
+  }
+  panel.innerHTML = html;
+  panel.classList.remove('hidden');
+}
+
+function showToast(msg, type) {
+  const el = document.createElement('div');
+  el.className = `save-toast toast-${type}`;
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .3s'; }, 1500);
+  setTimeout(() => el.remove(), 1900);
+}
+
+function menuLoad() {
+  const panel = document.getElementById('menuSavePanel');
+  const saves = getSaves();
+  let html = '<div style="text-align:center;color:#ffaa44;font-size:clamp(11px,1.8vw,15px);margin-bottom:8px;letter-spacing:2px">选择读取存档</div>';
+  let hasAny = false;
+  for(let i = 0; i < MAX_SLOTS; i++) {
+    const s = saves[i];
+    if(s) {
+      hasAny = true;
+      const d = new Date(s.date);
+      const dateStr = `${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getDate().toString().padStart(2,'0')} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+      html += `<div class="save-slot" onclick="menuLoadGame(${i})">
+        <div class="save-slot-info">
+          <div class="save-slot-name">存档 ${i+1}</div>
+          <div class="save-slot-detail">${MAPS[s.map]?.name||s.map} · WAVE ${s.wave} · ${s.score}分 · ${fmtTime(s.gameTime)} · ${dateStr}</div>
+        </div>
+        <button class="save-slot-del" onclick="deleteSaveMenu(${i},event)" title="删除">&#10005;</button>
+      </div>`;
+    }
+  }
+  if(!hasAny) {
+    html += '<div style="text-align:center;color:#555;font-size:clamp(11px,1.5vw,14px);padding:16px">暂无存档</div>';
+  }
+  panel.innerHTML = html;
+  panel.classList.toggle('hidden');
+}
+
+function menuLoadGame(slotIdx) {
+  const saves = getSaves();
+  const data = saves[slotIdx];
+  if(!data) { showToast('该槽位为空', 'error'); return; }
+  currentMap = data.map;
+  document.querySelectorAll('.map-card').forEach(c => c.classList.remove('selected'));
+  const target = document.querySelector(`.map-card[data-map="${currentMap}"]`);
+  if(target) target.classList.add('selected');
+
+  initGame();
+  score = data.score; scoreDisplay = score;
+  combo = data.combo; maxCombo = data.maxCombo;
+  totalKills = data.totalKills;
+  wave = data.wave - 1;
+  gameTime = data.gameTime;
+  player.hp = data.playerHp;
+  player.maxHp = data.playerMaxHp;
+  player.x = data.px || W/2;
+  player.y = data.py || H/2;
+  specialCharge = data.specialCharge || 0;
+  player.col = MAPS[currentMap].accent;
+  startNextWave();
+
+  state = 'playing';
+  document.body.classList.add('playing');
+  document.getElementById('overlay').classList.remove('active');
+  document.getElementById('startScreen').classList.add('hidden');
+  document.getElementById('menuSavePanel').classList.add('hidden');
+  document.getElementById('hudPauseBtn').style.display='flex';
+  showToast('存档已读取', 'load');
+}
+
+function deleteSaveMenu(slotIdx, e) {
+  e.stopPropagation();
+  const saves = getSaves();
+  saves[slotIdx] = null;
+  putSaves(saves);
+  menuLoad();
 }
 document.addEventListener('touchmove',e=>e.preventDefault(),{passive:false});
 
